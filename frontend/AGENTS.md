@@ -1,6 +1,6 @@
 # Frontend — agent notes
 
-This is the React SPA for Document Copilot. Read [../AGENTS.md](../AGENTS.md) first — universal building rules live there. This file adds frontend-specific conventions.
+This is the React SPA for DHRPilot. Read [../AGENTS.md](../AGENTS.md) first — universal building rules live there. This file adds frontend-specific conventions.
 
 ## Stack
 

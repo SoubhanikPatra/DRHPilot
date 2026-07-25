@@ -7,7 +7,7 @@ This project uses a separate Python + FastAPI backend because the server is resp
 ```bash
 cd backend
 uv sync
-uv add fastapi uvicorn pydantic pydantic-settings httpx structlog openai supabase pydantic-ai sqlalchemy alembic "psycopg[binary]" pgvector
+uv add fastapi uvicorn pydantic pydantic-settings httpx structlog google-genai supabase pydantic-ai sqlalchemy alembic "psycopg[binary]" pgvector
 uv add --dev pytest ruff
 ```
 
@@ -76,7 +76,7 @@ For Jupyter, install and select the backend kernel:
 
 ```bash
 cd backend
-uv run python -m ipykernel install --user --name document-copilot-backend --display-name "Document Copilot Backend"
+uv run python -m ipykernel install --user --name dhrpilot-backend --display-name "DHRPilot Backend"
 ```
 
 Then notebooks can import backend modules:
