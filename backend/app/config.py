@@ -9,7 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Single source of truth for backend environment configuration."""
 
-    model_config = SettingsConfigDict(extra="ignore", env_file=None)
+    model_config = SettingsConfigDict(extra="ignore", env_file=".env")
 
     supabase_url: str
     supabase_anon_key: str
