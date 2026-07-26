@@ -1,4 +1,4 @@
-# Document Copilot — implementation checklist
+# DRHP Copilot — implementation checklist
 
 Work top to bottom. Each phase unlocks the next. Check items off as you go.
 
@@ -22,11 +22,8 @@ The critical path is **data model → ingestion → retrieval → LLM → citati
 - [x] Install toolchain: Python 3.12+, `uv`, Node 20+, `pnpm` (see [README](../README.md))
 - [x] Create Supabase project and collect credentials ([supabase-setup](guides/supabase-setup.md))
 - [x] Create Gemini API key (needed from Phase 6 onward)
-- [x] Set `USER_AGENT` in `data/download.py` and download sample 10-K corpus:
-  ```bash
-  uv run data/download.py
-  ```
-- [x] Confirm `data/downloads/manifest.json` lists AAPL, MSFT, NVDA, AMZN, GOOGL filings (2021–2025)
+- [ ] Download DRHP corpus — see Phase 4 for scraper details
+- [ ] Confirm `data/downloads/manifest.json` lists target companies and filings
 
 ---
 
@@ -46,7 +43,7 @@ Goal: a running FastAPI service with a migrated Supabase schema.
   - [x] `message_citations`
 - [x] Alembic init + first migration:
   - [x] `create extension if not exists vector`
-  - [x] `vector(1536)` embedding column
+  - [x] `vector(768)` embedding column (Gemini text-embedding-004)
   - [x] generated `tsvector` column on chunks
   - [x] HNSW index (vector) + GIN index (full-text)
   - [x] RLS policies (users see only their own chats)
@@ -84,14 +81,14 @@ Goal: end-to-end chat UI streaming from FastAPI, no real retrieval yet.
 **Backend**
 
 - [x] Chat thread CRUD: list threads, create thread, load message history
-- [x] `POST /chat/stream` — accepts AI SDK message format, streams a stubbed assistant reply
+- [x] `POST /api/threads/{id}/stream` — streams a stubbed assistant reply
 - [x] Persist user + assistant messages to `chat_messages` after stream completes
 - [x] `403` when user accesses another user's thread
 
 **Frontend**
 
 - [x] React Router: login, chat list, chat thread routes
-- [x] AI SDK chat primitives pointed at `POST /chat/stream` with Supabase bearer token
+- [x] SSE stream consumer pointed at `POST /api/threads/{id}/stream` with Supabase bearer token
 - [x] Thread sidebar (past conversations)
 - [x] Basic message list + input + streaming indicator
 - [x] Verify: create thread, send message, see streamed stub response, reload and see history
@@ -100,19 +97,22 @@ Goal: end-to-end chat UI streaming from FastAPI, no real retrieval yet.
 
 ## Phase 4 — Ingestion pipeline
 
-Goal: SEC filings in the corpus are parsed, chunked, embedded, and stored in Supabase.
+Goal: DRHPs and annual reports in the corpus are parsed, chunked, embedded, and stored in Supabase.
 
-- [x] `ingest/` scripts (or CLI entrypoint) for one-off corpus loading
-- [x] HTML → normalized Markdown extraction (preserve page/section metadata)
-- [x] Chunking strategy (size + overlap; store chunk index, page, section, ticker, filing type, year)
-- [x] Write `source_documents` rows with filing metadata from `manifest.json`
-- [x] Write `document_chunks` rows with text + metadata
-- [x] Gemini embedding generation → store `vector(1536)` per chunk
-- [x] Generated `tsvector` populated for full-text search
-- [x] Idempotent re-run (skip already-ingested documents)
-- [x] Unit tests: chunking logic, metadata extraction
-- [x] Run ingestion on full sample corpus (25 filings × 5 companies)
-- [x] Verify: chunks exist in Supabase; spot-check a known passage (e.g. Apple revenue mix table)
+**Corpus: Nifty 50 companies — DRHPs (from SEBI) + Annual Reports (from BSE)**
+
+- [ ] `ingest/scraper.py` — download DRHPs from SEBI (sebi.gov.in) and annual reports from BSE filings
+- [ ] `ingest/manifest.py` — build `manifest.json` with company, filing type, date, source URL, local path
+- [ ] PDF → normalized Markdown/text extraction (preserve page numbers — critical for citations)
+- [ ] Chunking strategy (size + overlap; store chunk index, page number, section, company, filing type, year)
+- [ ] Write `source_documents` rows with filing metadata from `manifest.json`
+- [ ] Write `document_chunks` rows with text + metadata (page number mandatory)
+- [ ] Gemini embedding generation (`text-embedding-004`, 768 dims) → store per chunk
+- [ ] Generated `tsvector` populated for full-text search
+- [ ] Idempotent re-run (skip already-ingested documents by accession/filing ID)
+- [ ] Unit tests: chunking logic, page number extraction
+- [ ] Run ingestion on initial corpus (target: 30+ DRHPs)
+- [ ] Verify: chunks exist in Supabase; spot-check a known passage with correct page number
 
 ---
 
@@ -120,57 +120,59 @@ Goal: SEC filings in the corpus are parsed, chunked, embedded, and stored in Sup
 
 Goal: a user question returns ranked, relevant source passages.
 
-- [x] `retrieval/queries.py` — pgvector semantic search over `document_chunks`
-- [x] `retrieval/queries.py` — Postgres full-text search over `search_vector`
-- [x] `retrieval/fusion.py` — Reciprocal Rank Fusion in Python
-- [x] `retrieval/retriever.py` — query → fused ranked passages + neighbor chunks
-- [x] Unit tests: fusion ranking, query assembly (mock DB)
-- [x] Integration test (optional, `@pytest.mark.integration`): real query against ingested corpus
-- [x] Verify: test queries from [client-brief](client-brief.md) return relevant chunks (manual or scripted)
+- [ ] `retrieval/queries.py` — pgvector semantic search over `document_chunks`
+- [ ] `retrieval/queries.py` — Postgres full-text search over `search_vector`
+- [ ] `retrieval/fusion.py` — Reciprocal Rank Fusion in Python
+- [ ] `retrieval/retriever.py` — query → fused ranked passages + neighbor chunks
+- [ ] Unit tests: fusion ranking, query assembly (mock DB)
+- [ ] Integration test (optional, `@pytest.mark.integration`): real query against ingested corpus
+- [ ] Verify: test queries return relevant chunks with correct page numbers
 
 ---
 
 ## Phase 6 — LLM agent & grounding
 
-Goal: grounded answers with enforced citations — the core product contract.
+Goal: grounded answers with enforced citations and evidence quality score — the core product contract.
 
-- [x] `assistant/instructions.md` — product contract (cite everything, refuse to invent, no stock picks)
-- [x] PydanticAI agent with typed deps (`DocumentAgentDeps`) and output (`GroundedAnswer`)
-- [x] Agent tools: `search_filings`, `read_chunk`, `read_surrounding_chunks`
-- [x] `chat/orchestrator.py` — one turn: retrieve → agent → validate → stream → persist
-- [x] `grounding/validator.py` — every citation maps to a retrieved passage; fail closed on violation
-- [x] `chat/streaming.py` — AI SDK-compatible stream (text deltas + citation metadata parts)
-- [x] Persist `message_citations` linked to assistant messages
-- [x] Unit tests: citation validation, grounding enforcement, message conversion
-- [x] Verify against [client-brief example questions](client-brief.md#example-analyst-questions):
-  - [x] Answers cite specific filings and pages
-  - [x] Under-specified questions get "not enough evidence" responses
-  - [x] Question 10 (generative AI margins) refuses to infer beyond filings
+- [ ] `assistant/instructions.md` — product contract (cite page numbers, refuse to invent, no investment advice)
+- [ ] PydanticAI agent with typed deps (`DocumentAgentDeps`) and output (`GroundedAnswer`)
+  - `GroundedAnswer` includes: `text`, `citations` (page + excerpt), `confidence_score` (0.0–1.0), `evidence_quality` (`strong` | `partial` | `insufficient`)
+- [ ] Agent tools: `search_filings`, `read_chunk`, `read_surrounding_chunks`
+- [ ] `chat/orchestrator.py` — one turn: retrieve → agent → validate → stream → persist
+- [ ] `grounding/validator.py` — every citation maps to a retrieved passage + page number; fail closed on violation
+- [ ] `grounding/confidence.py` — score based on: citation count, retrieval scores, coverage of query terms
+- [ ] `chat/streaming.py` — stream text deltas + citation metadata + confidence score
+- [ ] Persist `message_citations` linked to assistant messages (include page number)
+- [ ] Unit tests: citation validation, grounding enforcement, confidence scoring
+- [ ] Verify against example questions:
+  - [ ] Answers cite specific DRHP page numbers
+  - [ ] Under-specified questions get `evidence_quality: insufficient` responses
+  - [ ] Questions inferring beyond filings are refused
 
 ---
 
-## Phase 7 — Trust UI (citations & source passages)
+## Phase 7 — Trust UI (citations, source passages & confidence)
 
 Goal: analysts can verify every claim in one click — this is what makes the product usable.
 
-- [x] Citation chips/links on assistant messages (company, filing type, date, page/section)
-- [x] Source passage panel — show underlying excerpt for selected citation
-- [x] Empty states (no threads, no corpus match)
-- [x] Error states (auth expired, retrieval failure, grounding failure, network/CORS)
-- [x] Loading/streaming status during assistant run
-- [x] Verify: click a citation → see the exact passage from the filing
+- [ ] Citation chips on assistant messages (company, filing type, date, **page number**)
+- [ ] Confidence/evidence quality indicator per answer (badge: Strong / Partial / Insufficient)
+- [ ] Source passage panel — show underlying excerpt for selected citation
+- [ ] Empty states (no threads, no corpus match)
+- [ ] Error states (auth expired, retrieval failure, grounding failure, network/CORS)
+- [ ] Loading/streaming status during assistant run
+- [ ] Verify: click a citation → see exact passage + page number from the DRHP
 
 ---
 
 ## Phase 8 — Pilot readiness
 
-Goal: 5 senior analysts can use it for a week and report ≥3 hours saved per analyst per week.
+Goal: analysts can use it and report meaningful time saved on DRHP intake work.
 
 - [x] README "Running locally" section — copy-paste commands for backend + frontend + env vars
-- [x] Seed or document how to ingest/update the corpus
-- [ ] Smoke-test all 10 example questions from the client brief
+- [ ] Document how to ingest/update the corpus (add new DRHPs)
+- [ ] Smoke-test example questions across ingested DRHPs
 - [ ] Confirm chat history persists across sessions
-- [ ] Confirm ~40-user scale assumptions (no hardcoded single-user shortcuts)
 - [ ] Basic structured logging on backend (`structlog`) for debugging failed turns
 - [ ] Review latency: streaming starts within a few seconds for typical queries
 
@@ -178,12 +180,12 @@ Goal: 5 senior analysts can use it for a week and report ≥3 hours saved per an
 
 ## Phase 9 — Deployment (Railway)
 
-- [x] Railway: backend service (Uvicorn, env vars, `ALLOWED_ORIGINS`)
-- [x] Railway: frontend service (Vite build, `VITE_*` env vars at build time)
-- [x] Supabase: re-enable email confirmation for production if disabled during dev
-- [x] Run `alembic upgrade head` against production Supabase (direct connection)
-- [x] Run ingestion against production database
-- [x] End-to-end test on deployed URLs with a real Driftwood-style email account
+- [ ] Railway: backend service (Uvicorn, env vars, `ALLOWED_ORIGINS`)
+- [ ] Railway: frontend service (Vite build, `VITE_*` env vars at build time)
+- [ ] Supabase: re-enable email confirmation for production if disabled during dev
+- [ ] Run `alembic upgrade head` against production Supabase (direct connection)
+- [ ] Run ingestion against production database
+- [ ] End-to-end test on deployed URLs
 
 ---
 
@@ -191,7 +193,7 @@ Goal: 5 senior analysts can use it for a week and report ≥3 hours saved per an
 
 | Doc | Purpose |
 | --- | ------- |
-| [client-brief.md](client-brief.md) | What Driftwood needs and example questions |
+| [client-brief.md](client-brief.md) | What Mint Street Research needs and example questions |
 | [architecture.md](architecture.md) | System design, data model, streaming contract |
 | [guides/supabase-setup.md](guides/supabase-setup.md) | Hosted Postgres + Auth |
 | [guides/backend-setup.md](guides/backend-setup.md) | FastAPI + Alembic commands |

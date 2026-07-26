@@ -3,26 +3,17 @@
  *
  * Every method injects the Supabase JWT from the active session as a
  * Bearer token so the FastAPI auth middleware can verify it.
- *
- * Add domain-specific helpers here as the backend grows.
  */
 
 import { http, type RequestOptions } from '@/lib/http'
 import { supabase } from '@/lib/supabase'
+import { env } from '@/lib/env'
 
 // ---------------------------------------------------------------------------
 // Shared types (keep in sync with backend Pydantic schemas)
 // ---------------------------------------------------------------------------
 
-export interface Document {
-  id: string
-  title: string
-  file_type: string
-  status: 'pending' | 'processing' | 'ready' | 'error'
-  created_at: string
-}
-
-export interface Chat {
+export interface Thread {
   id: string
   title: string
   created_at: string
@@ -31,7 +22,7 @@ export interface Chat {
 
 export interface Message {
   id: string
-  chat_id: string
+  thread_id: string
   role: 'user' | 'assistant'
   content: string
   created_at: string
@@ -45,21 +36,54 @@ export interface Citation {
   chunk_excerpt: string
 }
 
+export interface Document {
+  id: string
+  title: string
+  file_type: string
+  status: 'pending' | 'processing' | 'ready' | 'error'
+  created_at: string
+}
+
 // ---------------------------------------------------------------------------
-// Auth header helper
+// Auth helpers
 // ---------------------------------------------------------------------------
 
 async function authHeaders(): Promise<Record<string, string>> {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
-
+  const { data: { session } } = await supabase.auth.getSession()
   if (!session?.access_token) return {}
   return { Authorization: `Bearer ${session.access_token}` }
 }
 
 async function authed(opts?: RequestOptions): Promise<RequestOptions> {
   return { ...opts, headers: { ...(await authHeaders()), ...opts?.headers } }
+}
+
+// ---------------------------------------------------------------------------
+// Threads
+// ---------------------------------------------------------------------------
+
+export const threadsApi = {
+  list: async (): Promise<Thread[]> =>
+    http.get('/api/threads', await authed()),
+
+  create: async (title = 'New conversation'): Promise<Thread> =>
+    http.post('/api/threads', { title }, await authed()),
+
+  delete: async (id: string): Promise<void> =>
+    http.delete(`/api/threads/${id}`, await authed()),
+
+  messages: async (threadId: string): Promise<Message[]> =>
+    http.get(`/api/threads/${threadId}/messages`, await authed()),
+
+  /** Returns raw Response for SSE stream consumption. */
+  stream: async (threadId: string, content: string): Promise<Response> => {
+    const headers = await authHeaders()
+    return fetch(`${env.apiBaseUrl}/api/threads/${threadId}/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body: JSON.stringify({ content }),
+    })
+  },
 }
 
 // ---------------------------------------------------------------------------
@@ -73,43 +97,9 @@ export const documentsApi = {
   ingest: async (file: File): Promise<Document> => {
     const body = new FormData()
     body.append('file', file)
-    return http.post('/api/documents/ingest', undefined, {
-      ...(await authed()),
-      body,
-    })
+    return http.post('/api/documents/ingest', undefined, { ...(await authed()), body })
   },
 
   delete: async (id: string): Promise<void> =>
     http.delete(`/api/documents/${id}`, await authed()),
-}
-
-// ---------------------------------------------------------------------------
-// Chats
-// ---------------------------------------------------------------------------
-
-export const chatsApi = {
-  list: async (): Promise<Chat[]> => http.get('/api/chats', await authed()),
-
-  create: async (title?: string): Promise<Chat> =>
-    http.post('/api/chats', { title: title ?? 'New chat' }, await authed()),
-
-  delete: async (id: string): Promise<void> =>
-    http.delete(`/api/chats/${id}`, await authed()),
-
-  messages: async (chatId: string): Promise<Message[]> =>
-    http.get(`/api/chats/${chatId}/messages`, await authed()),
-
-  /**
-   * Send a message and return the raw Response so the caller can
-   * consume the SSE stream directly with a ReadableStream reader.
-   */
-  sendMessage: async (chatId: string, content: string): Promise<Response> => {
-    const { apiBaseUrl } = await import('@/lib/env').then((m) => m.env)
-    const headers = await authHeaders()
-    return fetch(`${apiBaseUrl}/api/chats/${chatId}/messages`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...headers },
-      body: JSON.stringify({ content }),
-    })
-  },
 }
