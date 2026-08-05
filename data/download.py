@@ -249,7 +249,7 @@ def download_annual_reports(manifest: dict) -> None:
     out_dir = OUTPUT_DIR / "annual_report"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    with BSE(download_folder=str(out_dir)) as bse:
+    with BSE (download_folder=str(out_dir)) as bse:
         for company, scrip in NIFTY50.items():
             slug = _slug(company)
 
